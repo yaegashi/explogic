@@ -1,0 +1,6 @@
+/work
+/isim
+/isim.*
+/*.exe
+/fuse*
+/_impact*
