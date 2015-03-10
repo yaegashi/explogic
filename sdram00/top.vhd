@@ -75,11 +75,15 @@ architecture RTL of TOP is
   signal IN_STR, IN_RW, IN_DRDY, IN_CRDY: std_logic;
   signal IN_CLK, IN_CLK0, IN_CLK1, IN_VCLK: std_logic;
   signal CLK0, CLK1, VCLK, RESET: std_logic;
-  signal IN_COUNTER: std_logic_vector(31 downto 0);
-  signal IN_BLANK: std_logic;
+  signal IN_VH, IN_VV, IN_BLANK: std_logic;
   signal IN_HADDR, IN_VADDR, IN_MADDR: integer;
   signal IN_MA: std_logic_vector(17 downto 0);
   signal IN_VD: std_logic_vector(31 downto 0);
+  signal IN_SDA: std_logic_vector(14 downto 0);
+  signal IN_DPA: std_logic_vector(3 downto 0);
+
+  type G_STATE_TYPE is (INIT, IDLE, FETCH);
+  signal G_STATE: G_STATE_TYPE;
 
 begin
 
@@ -135,8 +139,8 @@ begin
   port map (
     CLK => VCLK,
     RESET => RESET,
-    HSYNC => VH,
-    VSYNC => VV,
+    HSYNC => IN_VH,
+    VSYNC => IN_VV,
     BLANK => IN_BLANK,
     HADDR => IN_HADDR,
     VADDR => IN_VADDR,
@@ -145,51 +149,55 @@ begin
 
   IN_MA <= CONV_STD_LOGIC_VECTOR(IN_MADDR, IN_MA'length);
 
-  process (IN_BLANK, IN_MA, IN_VD)
+  process (VCLK)
   begin
-    if IN_BLANK = '1' then
-      VR <= '0';
-      VG <= '0';
-      VB <= '0';
-    else
-      case IN_MA(2 downto 0) is
-        when "000" =>
-          VR <= IN_VD(0);
-          VG <= IN_VD(1);
-          VB <= IN_VD(2);
-        when "001" =>
-          VR <= IN_VD(4);
-          VG <= IN_VD(5);
-          VB <= IN_VD(6);
-        when "010" =>
-          VR <= IN_VD(8);
-          VG <= IN_VD(9);
-          VB <= IN_VD(10);
-        when "011" =>
-          VR <= IN_VD(12);
-          VG <= IN_VD(13);
-          VB <= IN_VD(14);
-        when "100" =>
-          VR <= IN_VD(16);
-          VG <= IN_VD(17);
-          VB <= IN_VD(18);
-        when "101" =>
-          VR <= IN_VD(20);
-          VG <= IN_VD(21);
-          VB <= IN_VD(22);
-        when "110" =>
-          VR <= IN_VD(24);
-          VG <= IN_VD(25);
-          VB <= IN_VD(26);
-        when "111" =>
-          VR <= IN_VD(28);
-          VG <= IN_VD(29);
-          VB <= IN_VD(30);
-        when others =>
-          VR <= '0';
-          VG <= '0';
-          VB <= '0';
-      end case;
+    if VCLK'event and VCLK = '1' then
+      VH <= IN_VH;
+      VV <= IN_VV;
+      if IN_BLANK = '1' then
+        VR <= '0';
+        VG <= '0';
+        VB <= '0';
+      else
+        case IN_MA(2 downto 0) is
+          when "000" =>
+            VR <= IN_VD(0);
+            VG <= IN_VD(1);
+            VB <= IN_VD(2);
+          when "001" =>
+            VR <= IN_VD(4);
+            VG <= IN_VD(5);
+            VB <= IN_VD(6);
+          when "010" =>
+            VR <= IN_VD(8);
+            VG <= IN_VD(9);
+            VB <= IN_VD(10);
+          when "011" =>
+            VR <= IN_VD(12);
+            VG <= IN_VD(13);
+            VB <= IN_VD(14);
+          when "100" =>
+            VR <= IN_VD(16);
+            VG <= IN_VD(17);
+            VB <= IN_VD(18);
+          when "101" =>
+            VR <= IN_VD(20);
+            VG <= IN_VD(21);
+            VB <= IN_VD(22);
+          when "110" =>
+            VR <= IN_VD(24);
+            VG <= IN_VD(25);
+            VB <= IN_VD(26);
+          when "111" =>
+            VR <= IN_VD(28);
+            VG <= IN_VD(29);
+            VB <= IN_VD(30);
+          when others =>
+            VR <= '0';
+            VG <= '0';
+            VB <= '0';
+        end case;
+      end if;
     end if;
   end process;
 
@@ -198,7 +206,7 @@ begin
   port map (
     WE => IN_DRDY,
     WCLK => CLK0,
-    A => IN_COUNTER(4 downto 1),
+    A => IN_DPA,
     DPRA => IN_MA(6 downto 3),
     D => IN_DO,
     SPO => open,
@@ -209,20 +217,43 @@ begin
   process (CLK0, RESET)
   begin
     if RESET = '1' then
-      IN_COUNTER <= (others => '0');
+      G_STATE <= INIT;
+      IN_SDA <= (others => '0');
+      IN_DPA <= (others => '0');
     elsif CLK0'event and CLK0 = '1' then
-      if IN_CRDY = '1' then
-        IN_COUNTER <= IN_COUNTER + 1;
-      end if;
+      case G_STATE is
+        when INIT =>
+          if IN_CRDY = '1' then
+            IN_SDA <= IN_SDA + 1;
+            if IN_SDA = 32767 then
+              G_STATE <= IDLE;
+            end if;
+          end if;
+        when IDLE =>
+          if IN_MA(6 downto 0) = "1110000" then
+            G_STATE <= FETCH;
+            IN_SDA <= IN_MA(17 downto 3) + 2;
+          end if;
+        when FETCH =>
+          if IN_CRDY = '1' then
+            IN_DPA <= IN_SDA(3 downto 0);
+            IN_SDA <= IN_SDA + 1;
+            if IN_SDA(3 downto 0) = 15 then
+              G_STATE <= IDLE;
+            end if;
+          end if;
+        when others =>
+          G_STATE <= INIT;
+      end case;
     end if;
   end process;
 
   --
-  IN_A <= IN_COUNTER(24 downto 1) & "0";
+  IN_A <= "000000000" & IN_SDA & "0";
   IN_DM <= (others=>'0');
-  IN_DI <= IN_COUNTER;
-  IN_STR <= '1' when IN_CRDY = '1' else '0';
-  IN_RW <= IN_COUNTER(0);
+  IN_DI <= "01110110010101000011001000010000";
+  IN_STR <= '1' when G_STATE = FETCH or G_STATE = INIT else '0';
+  IN_RW <= '0' when G_STATE = INIT else '1';
 
   --
   SD_CK_P <= CLK0;
