@@ -77,10 +77,9 @@ architecture RTL of TOP is
   signal CLK0, CLK1, VCLK, RESET: std_logic;
   signal IN_VH, IN_VV, IN_BLANK: std_logic;
   signal IN_HADDR, IN_VADDR, IN_MADDR: integer;
-  signal IN_MA: std_logic_vector(18 downto 0);
+  signal IN_MA, IN_MA0: std_logic_vector(18 downto 0);
   signal IN_VD: std_logic_vector(31 downto 0);
   signal IN_SDA: std_logic_vector(15 downto 0);
-  signal IN_DPA: std_logic_vector(3 downto 0);
 
   type G_STATE_TYPE is (INIT, IDLE, FETCH);
   signal G_STATE: G_STATE_TYPE;
@@ -206,7 +205,7 @@ begin
   port map (
     WE => IN_DRDY,
     WCLK => CLK0,
-    A => IN_DPA,
+    A => IN_SDA(3 downto 0),
     DPRA => IN_MA(6 downto 3),
     D => IN_DO,
     SPO => open,
@@ -219,8 +218,9 @@ begin
     if RESET = '1' then
       G_STATE <= INIT;
       IN_SDA <= (others => '0');
-      IN_DPA <= (others => '0');
+      IN_MA0 <= (others=>'0');
     elsif CLK0'event and CLK0 = '1' then
+      IN_MA0 <= IN_MA;
       case G_STATE is
         when INIT =>
           if IN_CRDY = '1' then
@@ -230,13 +230,16 @@ begin
             end if;
           end if;
         when IDLE =>
-          if IN_MA(6 downto 0) = "1110000" then
+          if IN_MA0(6 downto 0) = "1110000" then
             G_STATE <= FETCH;
-            IN_SDA <= IN_MA(18 downto 3) + 2;
+            if IN_MA0 = 640*480-16 then
+              IN_SDA <= (others=>'0');
+            else
+              IN_SDA <= IN_MA0(18 downto 3) + 2;
+            end if;
           end if;
         when FETCH =>
           if IN_CRDY = '1' then
-            IN_DPA <= IN_SDA(3 downto 0);
             IN_SDA <= IN_SDA + 1;
             if IN_SDA(3 downto 0) = 15 then
               G_STATE <= IDLE;
