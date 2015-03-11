@@ -1,5 +1,5 @@
 # Clock
-NET "CLK" LOC = C9;
+NET "CLK" LOC = C9 | PERIOD = 20ns;
 
 # Prohibit VREF pins
 CONFIG PROHIBIT = D2;
