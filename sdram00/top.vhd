@@ -77,9 +77,9 @@ architecture RTL of TOP is
   signal CLK0, CLK1, VCLK, RESET: std_logic;
   signal IN_VH, IN_VV, IN_BLANK: std_logic;
   signal IN_HADDR, IN_VADDR, IN_MADDR: integer;
-  signal IN_MA: std_logic_vector(17 downto 0);
+  signal IN_MA: std_logic_vector(18 downto 0);
   signal IN_VD: std_logic_vector(31 downto 0);
-  signal IN_SDA: std_logic_vector(14 downto 0);
+  signal IN_SDA: std_logic_vector(15 downto 0);
   signal IN_DPA: std_logic_vector(3 downto 0);
 
   type G_STATE_TYPE is (INIT, IDLE, FETCH);
@@ -232,7 +232,7 @@ begin
         when IDLE =>
           if IN_MA(6 downto 0) = "1110000" then
             G_STATE <= FETCH;
-            IN_SDA <= IN_MA(17 downto 3) + 2;
+            IN_SDA <= IN_MA(18 downto 3) + 2;
           end if;
         when FETCH =>
           if IN_CRDY = '1' then
@@ -249,7 +249,7 @@ begin
   end process;
 
   --
-  IN_A <= "000000000" & IN_SDA & "0";
+  IN_A <= "00000000" & IN_SDA & "0";
   IN_DM <= (others=>'0');
   IN_DI <= "01110110010101000011001000010000";
   IN_STR <= '1' when G_STATE = FETCH or G_STATE = INIT else '0';
