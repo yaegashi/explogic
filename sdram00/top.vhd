@@ -255,8 +255,14 @@ begin
   IN_STR <= '1' when G_STATE = FETCH or G_STATE = INIT else '0';
   IN_RW <= '0' when G_STATE = INIT else '1';
 
-  --
-  SD_CK_P <= CLK0;
-  SD_CK_N <= CLK1;
+  -- DDR clock forwarding
+  ODDR_CK_P:ODDR2 port map (
+    Q => SD_CK_P, C0 => CLK0, C1 => CLK1, CE => '1',
+    D0 => '1', D1 => '0', R => '0', S => '0'
+  );
+  ODDR_CK_N: ODDR2 port map (
+    Q => SD_CK_N, C0 => CLK0, C1 => CLK1, CE => '1',
+    D0 => '0', D1 => '1', R => '0', S => '0'
+  );
 
 end RTL;
