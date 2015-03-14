@@ -17,19 +17,18 @@ NCDFILE = $(WORKDIR)/$(TOP).ncd
 BITFILE = $(WORKDIR)/$(TOP).bit
 BINFILE = $(WORKDIR)/$(TOP).bin
 MCSFILE = $(WORKDIR)/$(TOP).mcs
-SVFFILE = $(WORKDIR)/$(TOP).svf
-FSIMFILE = $(WORKDIR)/func_sim.vhd
-TSIMFILE = $(WORKDIR)/time_sim.vhd
+TSIMVHDFILE = $(WORKDIR)/time_sim.vhd
+TSIMSDFFILE = $(WORKDIR)/time_sim.sdf
 
-RTLSOURCES = top.vhd sdramc.vhd
+RTLSOURCES = top.vhd sdramc.vhd ram16xyd.vhd confinit.vhd
 FSIMSOURCES = sim.vhd
-TSIMSOURCES = sim.vhd $(TSIMFILE)
+TSIMSOURCES = sim.vhd $(TSIMVHDFILE)
 
 all: $(MCSFILE)
 synth: $(NGCFILE)
 fit: $(NCDFILE)
 bit: $(BITFILE)
-svf: $(SVFFILE)
+mcs: $(MCSFILE)
 
 clean:
 	rm -rf $(WORKDIR) xflow.his _impact* fuse* isim isim.* *.exe
@@ -44,7 +43,7 @@ $(NCDFILE): $(NGCFILE) $(UCFFILE)
 $(BITFILE): $(NCDFILE)
 	$(XFLOW) -config bitgen.opt $<
 
-$(TSIMFILE): $(NCDFILE)
+$(TSIMVHDFILE) $(TSIMSDFFILE): $(NCDFILE)
 	$(XFLOW) -tsim generic_vhdl.opt $<
 
 $(BINFILE): $(BITFILE)
@@ -52,11 +51,11 @@ $(BINFILE): $(BITFILE)
 
 $(MCSFILE): $(BINFILE) $(DATFILE)
 	cat $(BINFILE) > $(TMPFILE)
-	printf '\xde\xad\xbe\xef' >> $(TMPFILE)
+	env printf '\xde\xad\xbe\xef' >> $(TMPFILE)
 	cat $(DATFILE) >> $(TMPFILE)
 	objcopy -I binary -O ihex $(TMPFILE) $@
 
-cfg: $(CMDFILE) $(BITFILE)
+cfg: $(CMDFILE) $(MCSFILE)
 	impact -batch $(CMDFILE)
 
 fsim.exe: $(RTLSOURCES) $(FSIMSOURCES)
@@ -69,10 +68,12 @@ tsim.exe: $(RTLSOURCES) $(TSIMSOURCES)
 	vhpcomp -prj $(PRJFILE)
 	vhpcomp $(TSIMSOURCES)
 	vlogcomp -d x16 -d sg6T micron/ddr.v
-	fuse -notimingchecks -o $@ work.sim
+	fuse -o $@ work.sim
 
 fsim: fsim.exe fsim.tcl
 	./$< -gui -tclbatch fsim.tcl
 
-tsim: tsim.exe tsim.tcl
-	./$< -gui -tclbatch tsim.tcl
+tsim: tsim.exe tsim.tcl $(TSIMSDFFILE)
+	./$< -gui -tclbatch tsim.tcl -sdftyp $(TSIMSDFFILE) -sdfroot /u0
+
+.PHONY: all synth fit bit mcs clean cfg fsim tsim

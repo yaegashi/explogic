@@ -1,6 +1,6 @@
 setMode -bs
 setCable -p auto
 Identify
-setAttribute -position 1 -attr configFileName -value "work/top.bit"
-Program -p 1 -e 
+setAttribute -position 2 -attr configFileName -value "work/top.mcs"
+Program -p 2 -e
 quit

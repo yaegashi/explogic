@@ -1,4 +1,4 @@
--- $Id: tsim.vhd 49 2005-11-29 13:29:05Z yaegashi $
+-- Behavior simulation entity.
 -- vim: set sw=2 sts=2:
 
 library IEEE;
@@ -19,7 +19,9 @@ architecture behavior of sim is
       SD_RAS, SD_CAS, SD_WE, SD_CK_N, SD_CK_P, SD_CKE, SD_CS: out std_logic;
       SD_LDM, SD_UDM: out std_logic;
       SD_LDQS, SD_UDQS: inout std_logic;
-      VR, VG, VB, VH, VV: out std_logic
+      VR, VG, VB, VH, VV: out std_logic;
+      CINIT, CCLK: out std_logic;
+      CDIN: in std_logic
     );
   end component;
 
@@ -41,7 +43,8 @@ architecture behavior of sim is
   signal SD_RAS, SD_CAS, SD_WE, SD_CK_N, SD_CK_P, SD_CKE, SD_CS: std_logic;
   signal SD_LDM, SD_UDM, SD_LDQS, SD_UDQS: std_logic;
   signal VR, VG, VB, VH, VV: std_logic;
-
+  signal CINIT, CCLK, CDIN: std_logic;
+  signal SR: std_logic_vector(31 downto 0) := X"efbeadde";
   constant CYCLE: Time := 20 ns;
   
 begin
@@ -67,7 +70,10 @@ begin
     VG => VG,
     VB => VB,
     VH => VH,
-    VV => VV
+    VV => VV,
+    CINIT => CINIT,
+    CCLK => CCLK,
+    CDIN => CDIN
   );
 
   U1: ddr
@@ -88,6 +94,7 @@ begin
     Dqs(1) => SD_UDQS
   );
 
+  -- Clock generation
   process
   begin
     CLK <= '1';
@@ -95,5 +102,16 @@ begin
     CLK <= '0';
     wait for CYCLE/2;
   end process;
+
+  -- Configuration PROM emulation
+  process (CCLK)
+  begin
+    if CCLK'event and CCLK = '1' then
+      SR(SR'left-1 downto 0) <= SR(SR'left downto 1);
+      SR(SR'left) <= SR(0);
+    end if;
+  end process;
+
+  CDIN <= SR(0);
   
 end behavior;

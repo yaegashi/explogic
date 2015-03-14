@@ -1,2 +1,2 @@
 wave add -radix hex .
-run 3us
+run 10us

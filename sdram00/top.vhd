@@ -1,3 +1,4 @@
+-- Top level entity.
 -- vim: set sw=2 sts=2:
 
 library IEEE;
@@ -17,7 +18,11 @@ entity TOP is
     SD_RAS, SD_CAS, SD_WE, SD_CK_N, SD_CK_P, SD_CKE, SD_CS: out std_logic;
     SD_LDM, SD_UDM: out std_logic;
     SD_LDQS, SD_UDQS: inout std_logic;
-    VR, VG, VB, VH, VV: out std_logic
+    VR, VG, VB, VH, VV: out std_logic;
+    CINIT, CCLK: out std_logic;
+    CDIN: in std_logic;
+    AD_CONV, AMP_CS, DAC_CS, SF_CE0: out std_logic;
+    LED: out std_logic_vector(7 downto 0)
   );
 end TOP;
 
@@ -36,14 +41,15 @@ architecture RTL of TOP is
       DM: in std_logic_vector(3 downto 0);
       DI: in std_logic_vector(31 downto 0);
       DO: out std_logic_vector(31 downto 0);
-      STR, RW: in std_logic;
+      STB, RW: in std_logic;
       DRDY, CRDY: out std_logic;
       RAM_A: out std_logic_vector(12 downto 0);
       RAM_D: inout std_logic_vector(15 downto 0);
       RAM_BA: out std_logic_vector(1 downto 0);
       RAM_RAS, RAM_CAS, RAM_WE, RAM_CS, RAM_CKE: out std_logic;
       RAM_DM: out std_logic_vector(1 downto 0);
-      RAM_DQS: inout std_logic_vector(1 downto 0)
+      RAM_DQS: inout std_logic_vector(1 downto 0);
+      RAM_CK_N, RAM_CK_P: out std_logic
     );
   end component;
 
@@ -69,25 +75,52 @@ architecture RTL of TOP is
           SPO, DPO: out std_logic_vector(Y-1 downto 0));
   end component;
 
+  component CONFINIT
+    generic (
+      J: integer := 2;
+      K: integer := 5;
+      L: integer := 14;
+      M: integer := 16383;
+      S: std_logic_vector := X"efbeadde" -- 0xdeadbeef in little endian order
+    );
+    port (
+      CLK, RESET: in std_logic;
+      START: in std_logic;
+      A: out std_logic_vector(L-1 downto 0);
+      D: out std_logic_vector(2**K-1 downto 0);
+      RDY: in std_logic;
+      STB, FIN: out std_logic;
+      CDIN: in std_logic;
+      CINIT, CCLK: out std_logic
+    );
+  end component;
+
   signal IN_A: std_logic_vector(24 downto 0);
   signal IN_DM: std_logic_vector(3 downto 0);
   signal IN_DI, IN_DO: std_logic_vector(31 downto 0);
-  signal IN_STR, IN_RW, IN_DRDY, IN_CRDY: std_logic;
+  signal IN_STB, IN_RW, IN_DRDY, IN_CRDY: std_logic;
   signal IN_CLK, IN_CLK0, IN_CLK1, IN_VCLK: std_logic;
   signal CLK0, CLK1, VCLK, RESET: std_logic;
   signal IN_VH, IN_VV, IN_BLANK: std_logic;
   signal IN_HADDR, IN_VADDR, IN_MADDR: integer;
-  signal IN_MA, IN_MA0: std_logic_vector(18 downto 0);
-  signal IN_VD: std_logic_vector(31 downto 0);
-  signal IN_SDA: std_logic_vector(15 downto 0);
+  signal V0_D: std_logic_vector(31 downto 0);
+  signal V0_MA, G_VA: std_logic_vector(18 downto 0);
+  signal G_SA: std_logic_vector(15 downto 0);
+  signal G_DA: std_logic_vector(3 downto 0);
+  signal CI0_A: std_logic_vector(15 downto 0);
+  signal CI0_D: std_logic_vector(31 downto 0);
+  signal CI0_START, CI0_RDY, CI0_STB, CI0_FIN: std_logic;
 
-  type G_STATE_TYPE is (INIT, IDLE, FETCH);
+  type G_STATE_TYPE is (START, INIT, IDLE, FETCH);
   signal G_STATE: G_STATE_TYPE;
 
 begin
 
-  -- 
+  -- Reset pulse generation.
+  -- This component is optimized away on synthesis.
   ROC0: ROC port map (O => RESET);
+
+  -- Clock generation.
   IBUFG0: IBUFG port map (I => CLK, O => IN_CLK);
   BUFG0: BUFG port map (I => IN_CLK0, O => CLK0);
   BUFG1: BUFG port map (I => IN_CLK1, O => CLK1);
@@ -98,14 +131,20 @@ begin
     STARTUP_WAIT => true
   )
   port map (
+    -- 50MHz OSC (IC17)
     CLKIN => IN_CLK,
     CLKFB => CLK0,
-    CLK2X => IN_CLK0,
-    CLK2X180 => IN_CLK1,
+    -- 50MHz CLK0, CLK1
+    CLK0 => IN_CLK0,
+    CLK180 => IN_CLK1,
+    -- 100MHz CLK0, CLK1
+    -- CLK2X => IN_CLK0,
+    -- CLK2X180 => IN_CLK1,
+    -- 25MHz VCLK
     CLKDV => IN_VCLK
   );
 
-  --
+  -- DDR SDRAM controller.
   SDRAMC0: SDRAMC
   port map (
     CLK0 => CLK0,
@@ -115,7 +154,7 @@ begin
     DM => IN_DM,
     DI => IN_DI,
     DO => IN_DO,
-    STR => IN_STR,
+    STB => IN_STB,
     RW => IN_RW,
     DRDY => IN_DRDY,
     CRDY => IN_CRDY,
@@ -130,10 +169,21 @@ begin
     RAM_DM(0) => SD_LDM,
     RAM_DM(1) => SD_UDM,
     RAM_DQS(0) => SD_LDQS,
-    RAM_DQS(1) => SD_UDQS
+    RAM_DQS(1) => SD_UDQS,
+    RAM_CK_N => SD_CK_N,
+    RAM_CK_P => SD_CK_P
   );
 
-  --
+  IN_DM <= (others=>'0');
+  IN_DI <= CI0_D;
+  IN_A <= "00000000" & CI0_A & "0" when G_STATE = INIT else
+          "00000000" & G_SA & "0";
+  IN_STB <= CI0_STB when G_STATE = INIT else
+            '1' when G_STATE = FETCH else
+            '0';
+  IN_RW <= '0' when G_STATE = INIT else '1';
+
+  -- CRT controller.
   CRTC0: CRTC
   port map (
     CLK => VCLK,
@@ -146,7 +196,7 @@ begin
     MADDR => IN_MADDR
   );
 
-  IN_MA <= CONV_STD_LOGIC_VECTOR(IN_MADDR, IN_MA'length);
+  V0_MA <= CONV_STD_LOGIC_VECTOR(IN_MADDR, V0_MA'length);
 
   process (VCLK)
   begin
@@ -158,114 +208,130 @@ begin
         VG <= '0';
         VB <= '0';
       else
-        case IN_MA(2 downto 0) is
+        case V0_MA(2 downto 0) is
           when "000" =>
-            VR <= IN_VD(0);
-            VG <= IN_VD(1);
-            VB <= IN_VD(2);
+            VR <= V0_D(0);
+            VG <= V0_D(1);
+            VB <= V0_D(2);
           when "001" =>
-            VR <= IN_VD(4);
-            VG <= IN_VD(5);
-            VB <= IN_VD(6);
+            VR <= V0_D(4);
+            VG <= V0_D(5);
+            VB <= V0_D(6);
           when "010" =>
-            VR <= IN_VD(8);
-            VG <= IN_VD(9);
-            VB <= IN_VD(10);
+            VR <= V0_D(8);
+            VG <= V0_D(9);
+            VB <= V0_D(10);
           when "011" =>
-            VR <= IN_VD(12);
-            VG <= IN_VD(13);
-            VB <= IN_VD(14);
+            VR <= V0_D(12);
+            VG <= V0_D(13);
+            VB <= V0_D(14);
           when "100" =>
-            VR <= IN_VD(16);
-            VG <= IN_VD(17);
-            VB <= IN_VD(18);
+            VR <= V0_D(16);
+            VG <= V0_D(17);
+            VB <= V0_D(18);
           when "101" =>
-            VR <= IN_VD(20);
-            VG <= IN_VD(21);
-            VB <= IN_VD(22);
+            VR <= V0_D(20);
+            VG <= V0_D(21);
+            VB <= V0_D(22);
           when "110" =>
-            VR <= IN_VD(24);
-            VG <= IN_VD(25);
-            VB <= IN_VD(26);
+            VR <= V0_D(24);
+            VG <= V0_D(25);
+            VB <= V0_D(26);
           when "111" =>
-            VR <= IN_VD(28);
-            VG <= IN_VD(29);
-            VB <= IN_VD(30);
+            VR <= V0_D(28);
+            VG <= V0_D(29);
+            VB <= V0_D(30);
           when others =>
-            VR <= '0';
-            VG <= '0';
-            VB <= '0';
+            VR <= '-';
+            VG <= '-';
+            VB <= '-';
         end case;
       end if;
     end if;
   end process;
 
-  --
+  -- Dual port ram for video output buffer.
   DPRAM0: RAM16XYD
   port map (
-    WE => IN_DRDY,
     WCLK => CLK0,
-    A => IN_SDA(3 downto 0),
-    DPRA => IN_MA(6 downto 3),
+    WE => IN_DRDY,
+    A => G_DA,
     D => IN_DO,
-    SPO => open,
-    DPO => IN_VD
+    DPRA => V0_MA(6 downto 3),
+    DPO => V0_D
   );
 
-  --
+  -- Read initializing data for SDRAM from Configuration PROM (XCF04S).
+  CI0: CONFINIT
+  generic map (L => 16, M => 640*480/8)
+  port map (
+    CLK => CLK0,
+    RESET => RESET,
+    START => CI0_START,
+    A => CI0_A,
+    D => CI0_D,
+    RDY => CI0_RDY,
+    STB => CI0_STB,
+    FIN => CI0_FIN,
+    CDIN => CDIN,
+    CINIT => CINIT,
+    CCLK => CCLK
+  );
+
+  CI0_START <= '1' when IN_CRDY = '1' and G_STATE = START else '0';
+  CI0_RDY <= IN_CRDY;
+
+  -- Main state transition.
   process (CLK0, RESET)
   begin
     if RESET = '1' then
-      G_STATE <= INIT;
-      IN_SDA <= (others => '0');
-      IN_MA0 <= (others=>'0');
+      G_STATE <= START;
+      G_SA <= (others => '0');
+      G_VA <= (others=>'0');
+      G_DA <= (others=>'0');
     elsif CLK0'event and CLK0 = '1' then
-      IN_MA0 <= IN_MA;
+      G_VA <= V0_MA;
       case G_STATE is
+        when START =>
+          if CI0_FIN = '0' and IN_CRDY = '1' then
+            G_STATE <= INIT;
+          end if;
         when INIT =>
-          if IN_CRDY = '1' then
-            IN_SDA <= IN_SDA + 1;
-            if IN_SDA = 32767 then
-              G_STATE <= IDLE;
-            end if;
+          if CI0_FIN = '1' then
+            G_STATE <= IDLE;
           end if;
         when IDLE =>
-          if IN_MA0(6 downto 0) = "1110000" then
+          if G_VA(6 downto 4) = "111" then
             G_STATE <= FETCH;
-            if IN_MA0 = 640*480-16 then
-              IN_SDA <= (others=>'0');
+            if G_VA(18 downto 7) = 640*480/128-1 then
+              G_SA <= (others=>'0');
             else
-              IN_SDA <= IN_MA0(18 downto 3) + 2;
+              G_SA <= (G_VA(18 downto 7) + 1) & "0000";
             end if;
           end if;
         when FETCH =>
           if IN_CRDY = '1' then
-            IN_SDA <= IN_SDA + 1;
-            if IN_SDA(3 downto 0) = 15 then
+            G_SA <= G_SA + 1;
+            if G_SA(3 downto 0) = 15 then
               G_STATE <= IDLE;
             end if;
           end if;
         when others =>
           G_STATE <= INIT;
       end case;
+      if IN_CRDY = '1' then
+        G_DA <= G_SA(3 downto 0);
+      end if;
     end if;
   end process;
 
-  --
-  IN_A <= "00000000" & IN_SDA & "0";
-  IN_DM <= (others=>'0');
-  IN_DI <= "01110110010101000011001000010000";
-  IN_STR <= '1' when G_STATE = FETCH or G_STATE = INIT else '0';
-  IN_RW <= '0' when G_STATE = INIT else '1';
+  -- These pins need to be tied to '0' or '1' to avoid SPI bus contention.
+  AD_CONV <= '0';
+  AMP_CS <= '1';
+  DAC_CS <= '1';
+  SF_CE0 <= '1';
 
-  -- DDR clock forwarding
-  ODDR_CK_P:ODDR2 port map (
-    Q => SD_CK_P, C0 => CLK0, C1 => CLK1, CE => '1',
-    D0 => '1', D1 => '0', R => '0', S => '0'
-  );
-  ODDR_CK_N: ODDR2 port map (
-    Q => SD_CK_N, C0 => CLK0, C1 => CLK1, CE => '1',
-    D0 => '0', D1 => '1', R => '0', S => '0'
-  );
+  -- LEDs for debugging.
+  LED <= (others=>'0');
 
 end RTL;
